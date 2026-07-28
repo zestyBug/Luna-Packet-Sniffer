@@ -8,6 +8,7 @@
     <ApplicationIcon>..\LunaPacketSniffer.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <Resource Include="..\LunaPacketSniffer.ico" Link="LunaPacketSniffer.ico" />
     <ProjectReference Include="..\LunaPacketSniffer.Capture\LunaPacketSniffer.Capture.csproj" />
     <ProjectReference Include="..\LunaPacketSniffer.Persistence\LunaPacketSniffer.Persistence.csproj" />

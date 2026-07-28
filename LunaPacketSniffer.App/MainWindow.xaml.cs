@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -11,6 +12,8 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using Microsoft.Data.Sqlite;
+using Microsoft.Win32;
 using LunaPacketSniffer.Capture;
 using LunaPacketSniffer.Core;
 using LunaPacketSniffer.Networking;
@@ -52,6 +55,7 @@ public partial class MainWindow : Window
     private string? _outputDirectory;
     private FilterWindow? _filterWindow;
     private CertificateWindow? _certificateWindow;
+    private string? _loadedCaptureDirectory;
 
     public MainWindow()
     {
@@ -224,6 +228,386 @@ public partial class MainWindow : Window
         }
 
         _certificateWindow.Activate();
+    }
+
+    private void OpenCaptureMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_captureSession is not null)
+        {
+            StatusText.Text = "Stop the active capture before loading another capture.";
+            return;
+        }
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Select a LunaPacketSniffer capture folder",
+            InitialDirectory = Path.Combine(AppContext.BaseDirectory, "out"),
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            LoadCapture(dialog.FolderName);
+        }
+        catch (Exception exception) when (exception is IOException or SqliteException or InvalidDataException)
+        {
+            ApplicationLog.Write(exception);
+            StatusText.Text = $"Could not load capture: {exception.Message}";
+            DetailTextBox.Text = exception.ToString();
+        }
+    }
+
+    private void OpenOutputFolderMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var directory = _loadedCaptureDirectory ?? Path.Combine(AppContext.BaseDirectory, "out");
+        Directory.CreateDirectory(directory);
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{directory}\"") { UseShellExecute = true });
+    }
+
+    private void ExitMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void LoadCapture(string directory)
+    {
+        var indexPath = Path.Combine(directory, "capture.index.sqlite");
+        if (!File.Exists(indexPath))
+        {
+            throw new InvalidDataException("The selected folder does not contain capture.index.sqlite.");
+        }
+
+        _packetRows.Clear();
+        _httpRows.Clear();
+        _webSocketRows.Clear();
+        _flowRows.Clear();
+        _flowRowsByKey.Clear();
+        _kcpRows.Clear();
+        _kcpRowsByKey.Clear();
+
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = indexPath,
+            Mode = SqliteOpenMode.ReadOnly,
+        }.ToString());
+        connection.Open();
+
+        LoadPackets(connection, directory);
+        LoadHttpTransactions(connection, directory);
+        LoadWebSocketMessages(connection, directory);
+        LoadFlows(connection);
+        LoadKcpConversations(connection);
+
+        _loadedCaptureDirectory = directory;
+        StatusText.Text = $"Loaded {Path.GetFileName(directory)}";
+        DetailTextBox.Text = $"Loaded capture: {directory}";
+    }
+
+    private void LoadPackets(SqliteConnection connection, string directory)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT packets.timestamp_unix_microseconds, packets.direction, packets.captured_length, packets.pcap_offset,
+                   COALESCE(processes.os_process_id, 0), COALESCE(processes.process_name, 'Unknown'),
+                   COALESCE(flows.protocol, -1), COALESCE(flows.local_address, ''), COALESCE(flows.local_port, 0),
+                   COALESCE(flows.remote_address, ''), COALESCE(flows.remote_port, 0)
+            FROM packets
+            LEFT JOIN flows ON flows.id = packets.flow_id
+            LEFT JOIN processes ON processes.id = flows.process_id
+            ORDER BY packets.timestamp_unix_microseconds;
+            """;
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var timestamp = FromUnixMicroseconds(reader.GetInt64(0));
+            var isOutbound = reader.GetInt64(1) == (long)PacketDirection.Outbound;
+            var capturedLength = checked((int)reader.GetInt64(2));
+            var pcapOffset = reader.GetInt64(3);
+            var protocolNumber = reader.GetInt64(6);
+            var protocol = protocolNumber switch
+            {
+                6 => "TCP",
+                17 => "UDP",
+                _ => "Unknown",
+            };
+            var source = FormatEndpoint(reader.GetString(7), reader.GetInt64(8));
+            var destination = FormatEndpoint(reader.GetString(9), reader.GetInt64(10));
+            var processId = reader.GetInt64(4);
+            var processName = reader.GetString(5);
+            var detail = $"Timestamp: {timestamp:O}{Environment.NewLine}Direction: {(isOutbound ? "Outbound" : "Inbound")}{Environment.NewLine}Process: {processName} ({processId}){Environment.NewLine}Protocol: {protocol}{Environment.NewLine}Source: {source}{Environment.NewLine}Destination: {destination}{Environment.NewLine}Length: {reader.GetInt64(2):N0} bytes";
+            _packetRows.Add(new PacketListItem(
+                timestamp.LocalDateTime.ToString("HH:mm:ss.fff"),
+                isOutbound ? "→" : "←",
+                processId == 0 ? "Unknown" : processId.ToString(),
+                processName,
+                protocol,
+                source,
+                destination,
+                capturedLength,
+                "Loaded capture",
+                detail,
+                () => CreateLoadedPacketDetail(detail, Path.Combine(directory, "capture.pcapng"), pcapOffset, capturedLength)));
+        }
+    }
+
+    private void LoadHttpTransactions(SqliteConnection connection, string directory)
+    {
+        var bodyDirectory = Path.Combine(directory, "bodies");
+        var requestBodyFiles = GetHttpBodyFiles(bodyDirectory, "-request.");
+        var responseBodyFiles = GetHttpBodyFiles(bodyDirectory, "-response.");
+        var requestBodyIndex = 0;
+        var responseBodyIndex = 0;
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT started_at_unix_microseconds, completed_at_unix_microseconds, method, url, status, status_text, http_version, request_headers, response_headers, request_content_type, response_content_type, request_body_length, response_body_length FROM http_transactions ORDER BY started_at_unix_microseconds;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var startedAt = FromUnixMicroseconds(reader.GetInt64(0));
+            var completedAt = FromUnixMicroseconds(reader.GetInt64(1));
+            var requestBodyLength = reader.GetInt64(11);
+            var responseBodyLength = reader.GetInt64(12);
+            var requestContentType = reader.GetString(9);
+            var responseContentType = reader.GetString(10);
+            var requestBodyPath = requestBodyLength > 0 && requestBodyIndex < requestBodyFiles.Count ? requestBodyFiles[requestBodyIndex++] : null;
+            var responseBodyPath = responseBodyLength > 0 && responseBodyIndex < responseBodyFiles.Count ? responseBodyFiles[responseBodyIndex++] : null;
+            var detail = $"Started: {startedAt:O}{Environment.NewLine}Completed: {completedAt:O}{Environment.NewLine}Request: {reader.GetString(2)} {reader.GetString(3)} {reader.GetString(6)}{Environment.NewLine}Response: {reader.GetInt64(4)} {reader.GetString(5)}{Environment.NewLine}{Environment.NewLine}Request headers:{Environment.NewLine}{reader.GetString(7)}{Environment.NewLine}{Environment.NewLine}Response headers:{Environment.NewLine}{reader.GetString(8)}";
+            _httpRows.Add(new HttpSessionListItem(
+                startedAt.LocalDateTime.ToString("HH:mm:ss.fff"),
+                reader.GetString(2),
+                $"{reader.GetInt64(4)} {reader.GetString(5)}",
+                reader.GetString(3),
+                $"{Math.Max(0, (completedAt - startedAt).TotalMilliseconds):F0} ms",
+                detail,
+                () => CreateLoadedHttpDetail(detail, requestBodyLength, requestContentType, requestBodyPath, responseBodyLength, responseContentType, responseBodyPath)));
+        }
+    }
+
+    private void LoadWebSocketMessages(SqliteConnection connection, string directory)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT timestamp_unix_microseconds, direction, opcode, payload_length, body_file_path FROM websocket_messages ORDER BY timestamp_unix_microseconds;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var timestamp = FromUnixMicroseconds(reader.GetInt64(0));
+            var isRequest = reader.GetInt64(1) == 0;
+            var bodyFilePath = reader.GetString(4);
+            var resolvedBodyPath = Path.IsPathRooted(bodyFilePath) ? bodyFilePath : Path.Combine(directory, bodyFilePath);
+            var detail = $"Timestamp: {timestamp:O}{Environment.NewLine}Direction: {(isRequest ? "Client → Server" : "Server → Client")}{Environment.NewLine}Type: {reader.GetString(2)}{Environment.NewLine}Length: {reader.GetInt64(3):N0} bytes{Environment.NewLine}Saved: {resolvedBodyPath}";
+            _webSocketRows.Add(new WebSocketListItem(
+                timestamp.LocalDateTime.ToString("HH:mm:ss.fff"),
+                isRequest ? "Client → Server" : "Server → Client",
+                reader.GetString(2),
+                checked((int)reader.GetInt64(3)),
+                reader.GetString(2),
+                detail));
+        }
+    }
+
+    private void LoadFlows(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT flows.id, processes.os_process_id, processes.process_name, flows.protocol, flows.local_address, flows.local_port, flows.remote_address, flows.remote_port,
+                   COUNT(packets.id), COALESCE(SUM(packets.captured_length), 0)
+            FROM flows
+            JOIN processes ON processes.id = flows.process_id
+            LEFT JOIN packets ON packets.flow_id = flows.id
+            GROUP BY flows.id
+            ORDER BY flows.created_at_unix_microseconds;
+            """;
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var flowId = reader.GetInt64(0);
+            var protocol = reader.GetInt64(3) == 6 ? "TCP" : "UDP";
+            _flowRows.Add(new FlowSessionListItem(
+                reader.GetInt64(1).ToString(),
+                reader.GetString(2),
+                protocol,
+                FormatEndpoint(reader.GetString(4), reader.GetInt64(5)),
+                FormatEndpoint(reader.GetString(6), reader.GetInt64(7)),
+                reader.GetInt64(8),
+                reader.GetInt64(9),
+                protocol == "TCP" ? () => CreateLoadedTcpFlowDetail(Path.Combine(_loadedCaptureDirectory!, "capture.index.sqlite"), Path.Combine(_loadedCaptureDirectory!, "capture.pcapng"), flowId) : null));
+        }
+    }
+
+    private void LoadKcpConversations(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT conversation_id, endpoint_a, endpoint_b, last_command, last_sequence_number, segment_count, reassembled_message_count, reassembled_byte_count FROM kcp_conversations ORDER BY id;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            _kcpRows.Add(new KcpConversationListItem(
+                reader.GetInt64(0).ToString(),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetInt64(4),
+                reader.GetInt64(5),
+                reader.GetInt64(6),
+                reader.GetInt64(7)));
+        }
+    }
+
+    private static DateTimeOffset FromUnixMicroseconds(long microseconds) =>
+        DateTimeOffset.FromUnixTimeMilliseconds(microseconds / 1_000).AddTicks((microseconds % 1_000) * 10).ToLocalTime();
+
+    private static string FormatEndpoint(string address, long port) =>
+        string.IsNullOrEmpty(address) ? "Unknown" : $"{address}:{port}";
+
+    private static List<string> GetHttpBodyFiles(string bodyDirectory, string directionMarker) =>
+        Directory.Exists(bodyDirectory)
+            ? Directory.EnumerateFiles(bodyDirectory)
+                .Where(path => Path.GetFileName(path).Contains(directionMarker, StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(path).Contains("-websocket-", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path => Path.GetFileName(path), StringComparer.Ordinal)
+                .ToList()
+            : [];
+
+    private static string CreateLoadedHttpDetail(string detail, long requestBodyLength, string requestContentType, string? requestBodyPath, long responseBodyLength, string responseContentType, string? responseBodyPath)
+    {
+        var text = new StringBuilder(detail);
+        AppendLoadedHttpBody(text, "Request body", requestBodyLength, requestContentType, requestBodyPath);
+        AppendLoadedHttpBody(text, "Response body", responseBodyLength, responseContentType, responseBodyPath);
+        return text.ToString();
+    }
+
+    private static void AppendLoadedHttpBody(StringBuilder detail, string title, long length, string contentType, string? bodyPath)
+    {
+        detail.AppendLine();
+        detail.AppendLine();
+        detail.AppendLine($"{title}: {length:N0} bytes{(string.IsNullOrWhiteSpace(contentType) ? string.Empty : $" ({contentType})")}");
+        if (length == 0)
+        {
+            return;
+        }
+
+        if (bodyPath is null || !File.Exists(bodyPath))
+        {
+            detail.AppendLine("Body file was not found.");
+            return;
+        }
+
+        detail.AppendLine($"Saved: {bodyPath}");
+        var data = File.ReadAllBytes(bodyPath);
+        if (Path.GetExtension(bodyPath).Equals(".bin", StringComparison.OrdinalIgnoreCase))
+        {
+            detail.AppendLine(FormatHexDump(data));
+            return;
+        }
+
+        var content = Encoding.UTF8.GetString(data);
+        if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                content = JsonSerializer.Serialize(JsonDocument.Parse(content), new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                });
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        detail.AppendLine(content);
+    }
+
+    private static string CreateLoadedPacketDetail(string detail, string pcapPath, long pcapOffset, int capturedLength)
+    {
+        try
+        {
+            var data = ReadPcapPacket(pcapPath, pcapOffset, capturedLength);
+            return $"{detail}{Environment.NewLine}{Environment.NewLine}Raw bytes:{Environment.NewLine}{FormatHexDump(data)}";
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or OverflowException)
+        {
+            return $"{detail}{Environment.NewLine}{Environment.NewLine}Raw bytes could not be read: {exception.Message}";
+        }
+    }
+
+    private static string CreateLoadedTcpFlowDetail(string indexPath, string pcapPath, long flowId)
+    {
+        var outbound = new TcpStreamAssembler();
+        var inbound = new TcpStreamAssembler();
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = indexPath, Mode = SqliteOpenMode.ReadOnly }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT direction, captured_length, pcap_offset FROM packets WHERE flow_id = $flowId ORDER BY timestamp_unix_microseconds;";
+        command.Parameters.AddWithValue("$flowId", flowId);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var packet = ReadPcapPacket(pcapPath, reader.GetInt64(2), checked((int)reader.GetInt64(1)));
+            if (!PacketDecoder.TryDecode(packet, out var decoded) || decoded?.TcpSequenceNumber is not { } sequence || decoded.Payload.IsEmpty)
+            {
+                continue;
+            }
+
+            (reader.GetInt64(0) == (long)PacketDirection.Outbound ? outbound : inbound).Append(sequence, decoded.Payload.Span);
+        }
+
+        return $"Outbound stream preview:{Environment.NewLine}{FlowSessionListItem.FormatStream(outbound)}{Environment.NewLine}{Environment.NewLine}Inbound stream preview:{Environment.NewLine}{FlowSessionListItem.FormatStream(inbound)}";
+    }
+
+    private static byte[] ReadPcapPacket(string pcapPath, long pcapOffset, int capturedLength)
+    {
+        using var stream = new FileStream(pcapPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        stream.Position = pcapOffset;
+        Span<byte> header = stackalloc byte[28];
+        stream.ReadExactly(header);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(header) != 0x00000006)
+        {
+            throw new InvalidDataException("The PCAPNG offset does not point to an enhanced packet block.");
+        }
+
+        var packetLength = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[20..]));
+        if (packetLength != capturedLength)
+        {
+            throw new InvalidDataException("The indexed packet length does not match the PCAPNG packet length.");
+        }
+
+        var data = GC.AllocateUninitializedArray<byte>(packetLength);
+        stream.ReadExactly(data);
+        return data;
+    }
+
+    private static string FormatHexDump(ReadOnlySpan<byte> data)
+    {
+        var displayedLength = Math.Min(data.Length, 4_096);
+        var text = new StringBuilder(displayedLength * 4);
+        for (var offset = 0; offset < displayedLength; offset += 16)
+        {
+            text.Append($"{offset:X4}  ");
+            var lineLength = Math.Min(16, displayedLength - offset);
+            for (var index = 0; index < 16; index++)
+            {
+                text.Append(index < lineLength ? $"{data[offset + index]:X2} " : "   ");
+            }
+
+            text.Append(" ");
+            for (var index = 0; index < lineLength; index++)
+            {
+                var value = data[offset + index];
+                text.Append(value is >= 32 and <= 126 ? (char)value : '.');
+            }
+
+            text.AppendLine();
+        }
+
+        if (displayedLength < data.Length)
+        {
+            text.AppendLine($"... {data.Length - displayedLength:N0} bytes omitted from this view");
+        }
+
+        return text.ToString();
     }
 
     protected override async void OnClosed(EventArgs e)
@@ -481,7 +865,7 @@ public partial class MainWindow : Window
     {
         if (PacketGrid.SelectedItem is PacketListItem item)
         {
-            DetailTextBox.Text = item.Detail;
+            DetailTextBox.Text = item.GetDetail();
         }
     }
 
@@ -489,7 +873,7 @@ public partial class MainWindow : Window
     {
         if (HttpGrid.SelectedItem is HttpSessionListItem item)
         {
-            DetailTextBox.Text = item.Detail;
+            DetailTextBox.Text = item.GetDetail();
         }
     }
 
@@ -505,7 +889,7 @@ public partial class MainWindow : Window
     {
         if (FlowGrid.SelectedItem is FlowSessionListItem item)
         {
-            DetailTextBox.Text = item.Detail;
+            DetailTextBox.Text = item.GetDetail();
         }
     }
 
@@ -528,8 +912,11 @@ public sealed record PacketListItem(
     string Destination,
     int Length,
     string Summary,
-    string Detail)
+    string Detail,
+    Func<string>? DetailLoader = null)
 {
+    public string GetDetail() => DetailLoader?.Invoke() ?? Detail;
+
     public static PacketListItem Create(CapturedPacket packet, PacketAnalysis analysis)
     {
         var flow = packet.Flow;
@@ -602,8 +989,10 @@ public sealed record ProcessListItem(uint ProcessId, string ProcessName)
     public string Display => $"{ProcessName} ({ProcessId})";
 }
 
-public sealed record HttpSessionListItem(string Timestamp, string Method, string Status, string Url, string Duration, string Detail)
+public sealed record HttpSessionListItem(string Timestamp, string Method, string Status, string Url, string Duration, string Detail, Func<string>? DetailLoader = null)
 {
+    public string GetDetail() => DetailLoader?.Invoke() ?? Detail;
+
     public static HttpSessionListItem Create(HttpTransaction transaction)
     {
         var detail = new StringBuilder();
@@ -792,6 +1181,7 @@ public sealed class FlowSessionListItem : INotifyPropertyChanged
     private long _byteCount;
     private readonly TcpStreamAssembler _inboundStream = new();
     private readonly TcpStreamAssembler _outboundStream = new();
+    private readonly Func<string>? _storedStreamDetailLoader;
 
     public FlowSessionListItem(FlowRecord flow)
     {
@@ -803,6 +1193,19 @@ public sealed class FlowSessionListItem : INotifyPropertyChanged
         Detail = $"Process: {ProcessName} ({ProcessId}){Environment.NewLine}Protocol: {Protocol}{Environment.NewLine}Local: {LocalEndpoint}{Environment.NewLine}Remote: {RemoteEndpoint}";
     }
 
+    public FlowSessionListItem(string processId, string processName, string protocol, string localEndpoint, string remoteEndpoint, long packetCount, long byteCount, Func<string>? storedStreamDetailLoader)
+    {
+        ProcessId = processId;
+        ProcessName = processName;
+        Protocol = protocol;
+        LocalEndpoint = localEndpoint;
+        RemoteEndpoint = remoteEndpoint;
+        _packetCount = packetCount;
+        _byteCount = byteCount;
+        _storedStreamDetailLoader = storedStreamDetailLoader;
+        Detail = $"Process: {ProcessName} ({ProcessId}){Environment.NewLine}Protocol: {Protocol}{Environment.NewLine}Local: {LocalEndpoint}{Environment.NewLine}Remote: {RemoteEndpoint}{Environment.NewLine}Packets: {_packetCount:N0}{Environment.NewLine}Bytes: {_byteCount:N0}";
+    }
+
     public string ProcessId { get; }
     public string ProcessName { get; }
     public string Protocol { get; }
@@ -812,6 +1215,8 @@ public sealed class FlowSessionListItem : INotifyPropertyChanged
     public long ByteCount => _byteCount;
     public string Detail { get; private set; }
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string GetDetail() => _storedStreamDetailLoader is null ? Detail : $"{Detail}{Environment.NewLine}{Environment.NewLine}{_storedStreamDetailLoader()}";
 
     public void AddPacket(FlowUpdate update)
     {
@@ -838,15 +1243,16 @@ public sealed class FlowSessionListItem : INotifyPropertyChanged
         return $"{Environment.NewLine}{Environment.NewLine}Outbound stream preview:{Environment.NewLine}{FormatStream(_outboundStream)}{Environment.NewLine}{Environment.NewLine}Inbound stream preview:{Environment.NewLine}{FormatStream(_inboundStream)}";
     }
 
-    private static string FormatStream(TcpStreamAssembler stream)
+    internal static string FormatStream(TcpStreamAssembler stream)
     {
         var data = stream.Contiguous;
         var preview = data.Span[..Math.Min(data.Length, 16_384)];
-        var text = new StringBuilder(preview.Length + 128);
+        var text = new StringBuilder(preview.Length + 4_096);
         text.AppendLine($"Retransmissions: {stream.RetransmissionCount:N0}");
         text.AppendLine($"Out of order: {stream.OutOfOrderCount:N0}");
         text.AppendLine($"Missing bytes: {stream.MissingByteCount:N0}");
         text.AppendLine();
+        text.AppendLine("Text preview:");
         foreach (var value in preview)
         {
             text.Append(value is >= 32 and <= 126 or 10 or 13 or 9 ? (char)value : '.');
@@ -856,6 +1262,34 @@ public sealed class FlowSessionListItem : INotifyPropertyChanged
         {
             text.AppendLine();
             text.Append($"... {data.Length - preview.Length:N0} bytes omitted");
+        }
+
+        text.AppendLine();
+        text.AppendLine();
+        text.AppendLine("Hex:");
+        var hexLength = Math.Min(data.Length, 4_096);
+        for (var offset = 0; offset < hexLength; offset += 16)
+        {
+            text.Append($"{offset:X4}  ");
+            var lineLength = Math.Min(16, hexLength - offset);
+            for (var index = 0; index < 16; index++)
+            {
+                text.Append(index < lineLength ? $"{data.Span[offset + index]:X2} " : "   ");
+            }
+
+            text.Append(" ");
+            for (var index = 0; index < lineLength; index++)
+            {
+                var value = data.Span[offset + index];
+                text.Append(value is >= 32 and <= 126 ? (char)value : '.');
+            }
+
+            text.AppendLine();
+        }
+
+        if (hexLength < data.Length)
+        {
+            text.AppendLine($"... {data.Length - hexLength:N0} bytes omitted from the hex view");
         }
 
         return text.ToString();
@@ -870,6 +1304,17 @@ public sealed class KcpConversationListItem : INotifyPropertyChanged
         EndpointA = update.EndpointA;
         EndpointB = update.EndpointB;
         Update(update);
+    }
+
+    public KcpConversationListItem(string conversationId, string endpointA, string endpointB, string lastCommand, long lastSequenceNumber, long segmentCount, long messageCount, long messageBytes)
+    {
+        ConversationId = conversationId;
+        EndpointA = endpointA;
+        EndpointB = endpointB;
+        SegmentCount = segmentCount;
+        MessageCount = messageCount;
+        MessageBytes = messageBytes;
+        Detail = $"conv: {ConversationId}{Environment.NewLine}Endpoint A: {EndpointA}{Environment.NewLine}Endpoint B: {EndpointB}{Environment.NewLine}Last command: {lastCommand}{Environment.NewLine}Last sequence number: {lastSequenceNumber}{Environment.NewLine}Segments: {SegmentCount:N0}{Environment.NewLine}Reassembled messages: {MessageCount:N0}{Environment.NewLine}Reassembled bytes: {MessageBytes:N0}";
     }
 
     public string ConversationId { get; }

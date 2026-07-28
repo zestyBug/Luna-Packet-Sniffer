@@ -196,9 +196,16 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="MenuItemBorder" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter ContentSource="Header" />
-                        </Border>
+                        <Grid>
+                            <Border x:Name="MenuItemBorder" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header" />
+                            </Border>
+                            <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}" IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}" AllowsTransparency="True" PopupAnimation="Fade">
+                                <Border MinWidth="180" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="2">
+                                    <StackPanel IsItemsHost="True" />
+                                </Border>
+                            </Popup>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="MenuItemBorder" Property="Background" Value="#263B59" />
@@ -289,7 +296,11 @@
         <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="5" Padding="4">
             <DockPanel LastChildFill="False">
                 <Menu DockPanel.Dock="Left">
-                    <MenuItem Header="File" />
+                    <MenuItem Header="File">
+                        <MenuItem Header="Open Capture..." Click="OpenCaptureMenuItem_Click" />
+                        <MenuItem Header="Open Output Folder" Click="OpenOutputFolderMenuItem_Click" />
+                        <MenuItem Header="Exit" Click="ExitMenuItem_Click" />
+                    </MenuItem>
                     <MenuItem Header="Filter" Click="OpenFiltersMenuItem_Click" />
                     <MenuItem Header="Certificate" Click="OpenCertificatesMenuItem_Click" />
                 </Menu>
