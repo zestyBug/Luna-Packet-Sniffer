@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -710,7 +711,11 @@ public sealed record HttpSessionListItem(string Timestamp, string Method, string
             {
                 try
                 {
-                    text = JsonSerializer.Serialize(JsonDocument.Parse(text), new JsonSerializerOptions { WriteIndented = true });
+                    text = JsonSerializer.Serialize(JsonDocument.Parse(text), new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    });
                 }
                 catch (JsonException)
                 {

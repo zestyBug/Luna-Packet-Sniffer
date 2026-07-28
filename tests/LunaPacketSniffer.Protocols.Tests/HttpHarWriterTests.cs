@@ -7,6 +7,30 @@ namespace LunaPacketSniffer.Protocols.Tests;
 public sealed class HttpHarWriterTests
 {
     [Fact]
+    public async Task StoresBinaryBodyOnlyInBodiesDirectory()
+    {
+        var directory = CreateDirectory();
+        var path = Path.Combine(directory, "capture.http.har");
+        try
+        {
+            await using var writer = new HttpHarWriter(path);
+            writer.ObserveDecrypted("connection", true, "GET /video HTTP/1.1\r\nHost: example.test\r\n\r\n"u8);
+            writer.ObserveDecrypted("connection", false, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: 4\r\n\r\n"u8);
+            writer.ObserveDecrypted("connection", false, [1, 2, 3, 4]);
+            await writer.DisposeAsync();
+
+            var har = await File.ReadAllTextAsync(path);
+            Assert.DoesNotContain("AQIDBA==", har);
+            var body = Assert.Single(Directory.GetFiles(Path.Combine(directory, "bodies")));
+            Assert.Equal([1, 2, 3, 4], await File.ReadAllBytesAsync(body));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ObserveDecryptedParsesMaskedWebSocketTextFrameAfterUpgrade()
     {
         var directory = CreateDirectory();

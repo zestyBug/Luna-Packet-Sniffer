@@ -108,7 +108,9 @@ public sealed class HttpHarWriter : IAsyncDisposable
 
     private void AddTransaction(HttpRequest request, HttpMessage response, DateTimeOffset completedAt)
     {
-        _entries.Add(new HarEntry(request, response, completedAt));
+        var requestBody = CreateBody(request.Message, "request");
+        var responseBody = CreateBody(response, "response");
+        _entries.Add(new HarEntry(request.StartedAt, CreateHarRequest(request), CreateHarResponse(response), completedAt));
         TransactionObserved?.Invoke(new HttpTransaction(
             request.StartedAt,
             completedAt,
@@ -119,8 +121,34 @@ public sealed class HttpHarWriter : IAsyncDisposable
             request.Message.Version,
             FormatHeaders(request.Message.Headers),
             FormatHeaders(response.Headers),
-            CreateBody(request.Message, "request"),
-            CreateBody(response, "response")));
+            requestBody,
+            responseBody));
+    }
+
+    private static HarRequest CreateHarRequest(HttpRequest request)
+    {
+        var message = request.Message;
+        var text = ToHarText(message.Body, message.ContentType, message.ContentEncoding);
+        return new HarRequest(
+            message.Method,
+            message.Url,
+            message.Version,
+            message.Headers,
+            message.Body.Length,
+            message.Body.Length == 0 ? null : new HarPostData(message.ContentType, text?.Text, text?.Encoding));
+    }
+
+    private static HarResponse CreateHarResponse(HttpMessage response)
+    {
+        var contentType = response.ContentType;
+        var text = ToHarText(response.Body, contentType, response.ContentEncoding);
+        return new HarResponse(
+            response.Status,
+            response.StatusText,
+            response.Version,
+            response.Headers,
+            response.Body.Length,
+            new HarContent(response.Body.Length, contentType, text?.Text, text?.Encoding));
     }
 
     private HttpBody CreateBody(HttpMessage message, string direction)
@@ -366,22 +394,18 @@ public sealed class HttpHarWriter : IAsyncDisposable
         }
     }
 
-    private sealed record HttpRequest(DateTimeOffset StartedAt, [property: JsonIgnore] HttpMessage Message)
+    private sealed record HttpRequest(DateTimeOffset StartedAt, HttpMessage Message);
+
+    private sealed record HarRequest(
+        string Method,
+        string Url,
+        string HttpVersion,
+        List<HarHeader> Headers,
+        int BodySize,
+        HarPostData? PostData)
     {
-        public string Method => Message.Method;
-        public string Url => Message.Url;
-        public string HttpVersion => Message.Version;
-        public List<HarHeader> Headers => Message.Headers;
         public List<HarQueryString> QueryString { get; } = [];
         public int HeadersSize => -1;
-        public int BodySize => Message.Body.Length;
-        public HarPostData? PostData => Message.Body.Length == 0 ? null : CreatePostData();
-
-        private HarPostData CreatePostData()
-        {
-            var text = ToHarText(Message.Body, Message.ContentType, Message.ContentEncoding);
-            return new HarPostData(Message.ContentType, text.Text, text.Encoding);
-        }
     }
 
     private sealed record HttpMessage(bool IsRequest, string Method, string Url, int Status, string StatusText, string Version, List<HarHeader> Headers, byte[] Body)
@@ -390,35 +414,29 @@ public sealed class HttpHarWriter : IAsyncDisposable
         public string ContentEncoding => GetHeaderValue(Headers, "Content-Encoding") ?? string.Empty;
     }
 
-    private sealed record HarEntry(HttpRequest Request, [property: JsonIgnore] HttpMessage ResponseMessage, DateTimeOffset CompletedAt)
+    private sealed record HarEntry(
+        [property: JsonIgnore] DateTimeOffset StartedAt,
+        HarRequest Request,
+        HarResponse Response,
+        [property: JsonIgnore] DateTimeOffset CompletedAt)
     {
-        public DateTimeOffset StartedDateTime => Request.StartedAt;
-        public double Time => Math.Max(0, (CompletedAt - Request.StartedAt).TotalMilliseconds);
+        public DateTimeOffset StartedDateTime => StartedAt;
+        public double Time => Math.Max(0, (CompletedAt - StartedAt).TotalMilliseconds);
         public object Cache { get; } = new();
         public HarTimings Timings { get; } = new(-1, -1, -1, -1, -1);
-        public HarResponse Response { get; } = new(ResponseMessage.Status, ResponseMessage.StatusText, ResponseMessage.Version, ResponseMessage.Headers, ResponseMessage.Body);
     }
 
-    private sealed record HarResponse(int Status, string StatusText, string HttpVersion, List<HarHeader> Headers, byte[] Body)
+    private sealed record HarResponse(int Status, string StatusText, string HttpVersion, List<HarHeader> Headers, int BodySize, HarContent Content)
     {
-        public HarContent Content => CreateContent();
         [JsonPropertyName("redirectURL")]
         public string RedirectUrl => string.Empty;
         public int HeadersSize => -1;
-        public int BodySize => Body.Length;
-
-        private HarContent CreateContent()
-        {
-            var mimeType = GetHeaderValue(Headers, "Content-Type") ?? string.Empty;
-            var text = ToHarText(Body, mimeType, GetHeaderValue(Headers, "Content-Encoding") ?? string.Empty);
-            return new HarContent(Body.Length, mimeType, text.Text, text.Encoding);
-        }
     }
 
-    private static HarText ToHarText(byte[] body, string contentType, string contentEncoding) =>
+    private static HarText? ToHarText(byte[] body, string contentType, string contentEncoding) =>
         IsTextContent(contentType) && (string.IsNullOrWhiteSpace(contentEncoding) || string.Equals(contentEncoding, "identity", StringComparison.OrdinalIgnoreCase))
             ? new(Encoding.UTF8.GetString(body), null)
-            : new(Convert.ToBase64String(body), "base64");
+            : null;
     private static bool IsTextContent(string contentType) => contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) || contentType.Contains("json", StringComparison.OrdinalIgnoreCase) || contentType.Contains("xml", StringComparison.OrdinalIgnoreCase) || contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase);
 
     private sealed record HarDocument(HarLog Log);
@@ -426,8 +444,8 @@ public sealed class HttpHarWriter : IAsyncDisposable
     private sealed record HarCreator(string Name, string Version);
     private sealed record HarHeader(string Name, string Value);
     private sealed record HarQueryString(string Name, string Value);
-    private sealed record HarPostData(string MimeType, string Text, string? Encoding);
-    private sealed record HarContent(int Size, string MimeType, string Text, string? Encoding);
+    private sealed record HarPostData(string MimeType, string? Text, string? Encoding);
+    private sealed record HarContent(int Size, string MimeType, string? Text, string? Encoding);
     private sealed record HarText(string Text, string? Encoding);
     private sealed record HarTimings(int Blocked, int Dns, int Connect, int Send, int Wait);
 }
