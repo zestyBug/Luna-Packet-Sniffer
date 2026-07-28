@@ -5,8 +5,10 @@
     <PlatformTarget>x64</PlatformTarget>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\LunaPacketSniffer.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="..\LunaPacketSniffer.ico" Link="LunaPacketSniffer.ico" />
     <ProjectReference Include="..\LunaPacketSniffer.Capture\LunaPacketSniffer.Capture.csproj" />
     <ProjectReference Include="..\LunaPacketSniffer.Persistence\LunaPacketSniffer.Persistence.csproj" />
     <ProjectReference Include="..\LunaPacketSniffer.Protocols\LunaPacketSniffer.Protocols.csproj" />
