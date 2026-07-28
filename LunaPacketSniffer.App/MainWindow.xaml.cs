@@ -267,7 +267,7 @@ public partial class MainWindow : Window
         var directory = Path.Combine(
             AppContext.BaseDirectory,
             "out",
-            DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff"));
+            DateTimeOffset.Now.ToString("yyyy-MM-dd-HH-mm-ss"));
         Directory.CreateDirectory(directory);
         return directory;
     }
