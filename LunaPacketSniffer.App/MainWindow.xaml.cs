@@ -463,6 +463,7 @@ public partial class MainWindow : Window
     private void UpdateStatistics()
     {
         var added = 0;
+        PacketListItem? lastPacket = null;
         while (added < 500 && _pendingPacketRows.TryDequeue(out var packet))
         {
             if (_packetRows.Count == 10_000)
@@ -471,10 +472,14 @@ public partial class MainWindow : Window
             }
 
             _packetRows.Add(packet);
+            lastPacket = packet;
             added++;
         }
 
+        ScrollToLatest(PacketGrid, lastPacket);
+
         added = 0;
+        HttpSessionListItem? lastHttpSession = null;
         while (added < 500 && _pendingHttpRows.TryDequeue(out var session))
         {
             if (_httpRows.Count == 10_000)
@@ -483,10 +488,14 @@ public partial class MainWindow : Window
             }
 
             _httpRows.Add(session);
+            lastHttpSession = session;
             added++;
         }
 
+        ScrollToLatest(HttpGrid, lastHttpSession);
+
         added = 0;
+        WebSocketListItem? lastWebSocketMessage = null;
         while (added < 500 && _pendingWebSocketRows.TryDequeue(out var message))
         {
             if (_webSocketRows.Count == 10_000)
@@ -495,10 +504,14 @@ public partial class MainWindow : Window
             }
 
             _webSocketRows.Add(message);
+            lastWebSocketMessage = message;
             added++;
         }
 
+        ScrollToLatest(WebSocketGrid, lastWebSocketMessage);
+
         added = 0;
+        FlowSessionListItem? lastFlow = null;
         while (added < 1_000 && _pendingFlowUpdates.TryDequeue(out var update))
         {
             if (!_flowRowsByKey.TryGetValue(update.Key, out var flow))
@@ -509,10 +522,14 @@ public partial class MainWindow : Window
             }
 
             flow.AddPacket(update);
+            lastFlow = flow;
             added++;
         }
 
+        ScrollToLatest(FlowGrid, lastFlow);
+
         added = 0;
+        KcpConversationListItem? lastKcpConversation = null;
         while (added < 1_000 && _pendingKcpUpdates.TryDequeue(out var update))
         {
             var key = $"{update.ConversationId}:{update.EndpointA}:{update.EndpointB}";
@@ -524,12 +541,23 @@ public partial class MainWindow : Window
             }
 
             conversation.Update(update);
+            lastKcpConversation = conversation;
             added++;
         }
+
+        ScrollToLatest(KcpGrid, lastKcpConversation);
 
         if (_captureSession is not null)
         {
             StatusText.Text = $"Capturing {_captureSession.CapturedPacketCount:N0} packets";
+        }
+    }
+
+    private void ScrollToLatest(DataGrid grid, object? item)
+    {
+        if (AutoScrollToggleButton.IsChecked == true && item is not null)
+        {
+            grid.ScrollIntoView(item);
         }
     }
 

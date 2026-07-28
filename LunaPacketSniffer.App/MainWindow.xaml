@@ -36,6 +36,7 @@
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                 <ListBox x:Name="FilterListBox" Width="360" Height="58" SelectionMode="Single" />
                 <Button Width="100" Height="32" Margin="8,0,0,0" VerticalAlignment="Top" Click="RemoveFilterButton_Click">Remove filter</Button>
+                <ToggleButton x:Name="AutoScrollToggleButton" Width="110" Height="32" Margin="8,0,0,0" VerticalAlignment="Top" IsChecked="True">Auto scroll</ToggleButton>
                 <TextBlock Margin="12,6,0,0" Foreground="DimGray">Same type: OR / Different types: AND</TextBlock>
             </StackPanel>
         </StackPanel>
