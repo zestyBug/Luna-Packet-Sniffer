@@ -50,6 +50,8 @@ public partial class MainWindow : Window
     private ProtocolAnalyzerSession? _protocolAnalyzer;
     private Task? _writerTask;
     private string? _outputDirectory;
+    private FilterWindow? _filterWindow;
+    private CertificateWindow? _certificateWindow;
 
     public MainWindow()
     {
@@ -59,9 +61,6 @@ public partial class MainWindow : Window
         WebSocketGrid.ItemsSource = _webSocketRows;
         FlowGrid.ItemsSource = _flowRows;
         KcpGrid.ItemsSource = _kcpRows;
-        FilterListBox.ItemsSource = _filters;
-        FilterPidComboBox.ItemsSource = _processes;
-        UpdateFilterValueControl();
         _statisticsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _statisticsTimer.Tick += (_, _) => UpdateStatistics();
     }
@@ -201,113 +200,30 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = true;
     }
 
-    private void AddFilterButton_Click(object sender, RoutedEventArgs e)
+    private void OpenFiltersMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (FilterTypeComboBox.SelectedItem is not ComboBoxItem { Tag: string typeName })
+        if (_filterWindow is null)
         {
+            _filterWindow = new FilterWindow(_filters, _processes) { Owner = this };
+            _filterWindow.Closed += (_, _) => _filterWindow = null;
+            _filterWindow.Show();
             return;
         }
 
-        try
-        {
-            var type = Enum.Parse<CaptureFilterType>(typeName);
-            var value = type switch
-            {
-                CaptureFilterType.ProcessId when FilterPidComboBox.SelectedItem is ProcessListItem process => process.ProcessId.ToString(),
-                CaptureFilterType.Protocol when FilterProtocolComboBox.SelectedItem is ComboBoxItem { Tag: string protocol } => protocol,
-                _ => FilterValueTextBox.Text,
-            };
-            AddFilter(CaptureFilter.Create(type, value));
-            FilterValueTextBox.Clear();
-        }
-        catch (ArgumentException exception)
-        {
-            StatusText.Text = exception.Message;
-        }
+        _filterWindow.Activate();
     }
 
-    private void FilterTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void OpenCertificatesMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        UpdateFilterValueControl();
-    }
-
-    private void UpdateFilterValueControl()
-    {
-        if (FilterValueTextBox is null || FilterPidComboBox is null || FilterProtocolComboBox is null)
+        if (_certificateWindow is null)
         {
+            _certificateWindow = new CertificateWindow(_rootCertificateAuthority) { Owner = this };
+            _certificateWindow.Closed += (_, _) => _certificateWindow = null;
+            _certificateWindow.Show();
             return;
         }
 
-        if (FilterTypeComboBox.SelectedItem is not ComboBoxItem { Tag: string typeName })
-        {
-            return;
-        }
-
-        var usesPidSelector = typeName == "ProcessId";
-        var usesProtocolSelector = typeName == "Protocol";
-        FilterValueTextBox.Visibility = usesPidSelector || usesProtocolSelector ? Visibility.Collapsed : Visibility.Visible;
-        FilterPidComboBox.Visibility = usesPidSelector ? Visibility.Visible : Visibility.Collapsed;
-        FilterProtocolComboBox.Visibility = usesProtocolSelector ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void FilterPidComboBox_DropDownOpened(object sender, EventArgs e)
-    {
-        RefreshProcessList();
-    }
-
-    private void AddFilter(CaptureFilter filter)
-    {
-        if (!_filters.Contains(filter))
-        {
-            _filters.Add(filter);
-        }
-    }
-
-    private void RefreshProcessList()
-    {
-        var processes = Process.GetProcesses()
-            .Select(process =>
-            {
-                using (process)
-                {
-                    return new ProcessListItem((uint)process.Id, process.ProcessName);
-                }
-            })
-            .OrderBy(process => process.ProcessName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(process => process.ProcessId)
-            .ToArray();
-        _processes.Clear();
-        foreach (var process in processes)
-        {
-            _processes.Add(process);
-        }
-    }
-
-    private void RemoveFilterButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (FilterListBox.SelectedItem is CaptureFilter filter)
-        {
-            _filters.Remove(filter);
-        }
-    }
-
-    private void InstallRootCertificate_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var certificate = _rootCertificateAuthority.EnsureInstalled();
-            StatusText.Text = $"Root CA installed: {certificate.Thumbprint}";
-        }
-        catch (CryptographicException exception)
-        {
-            StatusText.Text = exception.Message;
-        }
-    }
-
-    private void RemoveRootCertificate_Click(object sender, RoutedEventArgs e)
-    {
-        _rootCertificateAuthority.Remove();
-        StatusText.Text = "Root CA removed";
+        _certificateWindow.Activate();
     }
 
     protected override async void OnClosed(EventArgs e)

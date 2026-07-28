@@ -1,0 +1,29 @@
+<Window x:Class="LunaPacketSniffer.App.CertificateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Certificates - LunaPacketSniffer" Width="480" Height="220" ResizeMode="NoResize"
+        Background="#111827" Foreground="#E5E7EB" Icon="LunaPacketSniffer.ico">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#26364F" />
+            <Setter Property="Foreground" Value="#E5E7EB" />
+            <Setter Property="BorderBrush" Value="#334155" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+    </Window.Resources>
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock FontSize="18" FontWeight="SemiBold">HTTPS decryption certificate</TextBlock>
+        <TextBlock Grid.Row="2" Foreground="#94A3B8" TextWrapping="Wrap">Install the LunaPacketSniffer root CA to decrypt HTTPS traffic. The certificate remains installed until you remove it.</TextBlock>
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Width="130" Height="32" Click="InstallRootCertificate_Click">Install Root CA</Button>
+            <Button Width="140" Height="32" Margin="8,0,0,0" Click="RemoveRootCertificate_Click">Remove Root CA</Button>
+        </StackPanel>
+    </Grid>
+</Window>
