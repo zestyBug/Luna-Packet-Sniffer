@@ -619,7 +619,7 @@ public sealed record PacketListItem(
         var flow = packet.Flow;
         return new PacketListItem(
             packet.Timestamp.LocalDateTime.ToString("HH:mm:ss.fff"),
-            packet.Direction.ToString(),
+            packet.Direction == PacketDirection.Outbound ? "→" : "←",
             flow?.Process.ProcessId.ToString() ?? "Unknown",
             flow?.Process.ProcessName ?? "Unknown",
             analysis.Protocol,

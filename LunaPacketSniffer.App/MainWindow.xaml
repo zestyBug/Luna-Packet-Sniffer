@@ -9,8 +9,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="12" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="12" />
-            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <StackPanel>
             <StackPanel Orientation="Horizontal">
@@ -41,18 +39,24 @@
             </StackPanel>
         </StackPanel>
         <TextBlock Grid.Row="2" x:Name="StatusText" FontSize="14">Ready</TextBlock>
-        <TabControl Grid.Row="4">
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="3*" />
+            </Grid.ColumnDefinitions>
+            <TabControl Grid.Column="0">
             <TabItem Header="Packets">
                 <DataGrid x:Name="PacketGrid" IsReadOnly="True" AutoGenerateColumns="False" EnableRowVirtualization="True" EnableColumnVirtualization="True" SelectionChanged="PacketGrid_SelectionChanged">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="180" />
-                        <DataGridTextColumn Header="Direction" Binding="{Binding Direction}" Width="90" />
-                        <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="80" />
-                        <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="150" />
-                        <DataGridTextColumn Header="Protocol" Binding="{Binding Protocol}" Width="80" />
-                        <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="*" />
-                        <DataGridTextColumn Header="Destination" Binding="{Binding Destination}" Width="*" />
-                        <DataGridTextColumn Header="Length" Binding="{Binding Length}" Width="80" />
+                        <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="82" />
+                        <DataGridTextColumn Header="Direction" Binding="{Binding Direction}" Width="30" />
+                        <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="50" />
+                        <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="60" />
+                        <DataGridTextColumn Header="Protocol" Binding="{Binding Protocol}" Width="55" />
+                        <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="125" />
+                        <DataGridTextColumn Header="Destination" Binding="{Binding Destination}" Width="125" />
+                        <DataGridTextColumn Header="Length" Binding="{Binding Length}" Width="50" />
                         <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="240" />
                     </DataGrid.Columns>
                 </DataGrid>
@@ -104,7 +108,8 @@
                     </DataGrid.Columns>
                 </DataGrid>
             </TabItem>
-        </TabControl>
-        <TextBox Grid.Row="6" x:Name="DetailTextBox" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Cascadia Mono" />
+            </TabControl>
+            <TextBox Grid.Column="2" x:Name="DetailTextBox" IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Cascadia Mono" />
+        </Grid>
     </Grid>
 </Window>
