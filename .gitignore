@@ -1,0 +1,6 @@
+artifacts/
+out/
+**/bin/
+**/obj/
+.vs/
+cmake-build-*/

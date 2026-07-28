@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LunaPacketSniffer.App", "LunaPacketSniffer.App\LunaPacketSniffer.App.csproj", "{B55A4B22-839F-4E05-B4AF-12B4DB5C7F90}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LunaPacketSniffer.Capture", "LunaPacketSniffer.Capture\LunaPacketSniffer.Capture.csproj", "{19A9C06F-8BE0-42F5-9204-CB5F32F3796F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LunaPacketSniffer.Core", "LunaPacketSniffer.Core\LunaPacketSniffer.Core.csproj", "{D77B7CDA-B149-4E26-8FC7-EF71199DF3EF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LunaPacketSniffer.NativeInterop", "LunaPacketSniffer.NativeInterop\LunaPacketSniffer.NativeInterop.csproj", "{504967E7-DA2C-403C-BD4F-13008DB6B1EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LunaPacketSniffer.Persistence", "LunaPacketSniffer.Persistence\LunaPacketSniffer.Persistence.csproj", "{367E3797-C5C1-4BFC-843F-3867D5D6DAE4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LunaPacketSniffer.Protocols.Tests", "tests\LunaPacketSniffer.Protocols.Tests\LunaPacketSniffer.Protocols.Tests.csproj", "{F7E028C0-1A93-4B26-AB80-CC90A3E6A74E}"
+EndProject
+Global
+  GlobalSection(SolutionConfigurationPlatforms) = preSolution
+    Debug|x64 = Debug|x64
+    Release|x64 = Release|x64
+  EndGlobalSection
+  GlobalSection(ProjectConfigurationPlatforms) = postSolution
+    {B55A4B22-839F-4E05-B4AF-12B4DB5C7F90}.Debug|x64.ActiveCfg = Debug|x64
+    {B55A4B22-839F-4E05-B4AF-12B4DB5C7F90}.Debug|x64.Build.0 = Debug|x64
+    {19A9C06F-8BE0-42F5-9204-CB5F32F3796F}.Debug|x64.ActiveCfg = Debug|x64
+    {19A9C06F-8BE0-42F5-9204-CB5F32F3796F}.Debug|x64.Build.0 = Debug|x64
+    {D77B7CDA-B149-4E26-8FC7-EF71199DF3EF}.Debug|x64.ActiveCfg = Debug|x64
+    {D77B7CDA-B149-4E26-8FC7-EF71199DF3EF}.Debug|x64.Build.0 = Debug|x64
+    {504967E7-DA2C-403C-BD4F-13008DB6B1EE}.Debug|x64.ActiveCfg = Debug|x64
+    {504967E7-DA2C-403C-BD4F-13008DB6B1EE}.Debug|x64.Build.0 = Debug|x64
+    {367E3797-C5C1-4BFC-843F-3867D5D6DAE4}.Debug|x64.ActiveCfg = Debug|x64
+    {367E3797-C5C1-4BFC-843F-3867D5D6DAE4}.Debug|x64.Build.0 = Debug|x64
+    {F7E028C0-1A93-4B26-AB80-CC90A3E6A74E}.Debug|x64.ActiveCfg = Debug|x64
+    {F7E028C0-1A93-4B26-AB80-CC90A3E6A74E}.Debug|x64.Build.0 = Debug|x64
+  EndGlobalSection
+EndGlobal

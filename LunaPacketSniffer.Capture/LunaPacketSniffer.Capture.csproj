@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\LunaPacketSniffer.Core\LunaPacketSniffer.Core.csproj" />
+    <ProjectReference Include="..\LunaPacketSniffer.NativeInterop\LunaPacketSniffer.NativeInterop.csproj" />
+  </ItemGroup>
+</Project>
