@@ -134,14 +134,15 @@ internal sealed class CaptureRunner : IAsyncDisposable
     {
         await foreach (var packet in _captureSession.Packets.ReadAllAsync())
         {
+            // Decode once and share the result with every consumer on this path.
+            PacketDecoder.TryDecode(packet.Data, out var decoded);
             var offset = await _writer.WritePacketAsync(packet);
             await _indexWriter.WritePacketAsync(packet, offset);
-            HarWriter.Observe(packet);
+            HarWriter.Observe(packet, decoded);
             _sessionWriter.Observe(packet);
-            PacketObserved?.Invoke(PacketListItem.Create(packet, _protocolAnalyzer.Analyze(packet.Data)));
+            PacketObserved?.Invoke(PacketListItem.Create(packet, _protocolAnalyzer.Analyze(packet.Data, decoded)));
             if (packet.Flow is { } flow)
             {
-                PacketDecoder.TryDecode(packet.Data, out var decoded);
                 FlowObserved?.Invoke(new FlowUpdate(
                     FlowUpdate.GetKey(flow),
                     flow,

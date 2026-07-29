@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using LunaPacketSniffer.Networking;
 
 namespace LunaPacketSniffer.App.Formatting;
 
@@ -17,17 +18,13 @@ internal static class HttpBodyFormatter
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public static bool IsTextContent(string contentType) =>
-        contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
-        contentType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
-        contentType.Contains("xml", StringComparison.OrdinalIgnoreCase) ||
-        contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase);
+    public static bool IsTextContent(string contentType) => HttpContentType.IsText(contentType);
 
     /// <summary>Decodes the body as UTF-8, indenting it when the content type declares JSON.</summary>
     public static string ToText(ReadOnlySpan<byte> data, string contentType)
     {
         var text = Encoding.UTF8.GetString(data);
-        return contentType.Contains("json", StringComparison.OrdinalIgnoreCase) ? IndentJson(text) : text;
+        return HttpContentType.IsJson(contentType) ? IndentJson(text) : text;
     }
 
     public static string IndentJson(string text)
@@ -49,7 +46,7 @@ internal static class HttpBodyFormatter
     public static byte[] Decompress(byte[] data, string contentEncoding, out string? error)
     {
         error = null;
-        if (string.IsNullOrWhiteSpace(contentEncoding) || string.Equals(contentEncoding, "identity", StringComparison.OrdinalIgnoreCase))
+        if (HttpContentType.IsIdentityEncoding(contentEncoding))
         {
             return data;
         }
