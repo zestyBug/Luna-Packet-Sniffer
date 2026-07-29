@@ -19,6 +19,7 @@ namespace LunaPacketSniffer.App;
 public partial class MainWindow : Window
 {
     private const int MaxRowsPerGrid = 10_000;
+    private const int MaxPendingRows = 20_000;
     private const int MaxListRowsPerTick = 500;
     private const int MaxAggregateRowsPerTick = 1_000;
 
@@ -71,11 +72,11 @@ public partial class MainWindow : Window
 
             var runner = await CaptureRunner.CreateAsync(CaptureOutput.CreateCaptureDirectory(), _filters);
             _captureRunner = runner;
-            runner.PacketObserved += _pendingPacketRows.Enqueue;
-            runner.FlowObserved += _pendingFlowUpdates.Enqueue;
-            runner.KcpConversationObserved += _pendingKcpUpdates.Enqueue;
-            runner.HttpTransactionObserved += transaction => _pendingHttpRows.Enqueue(HttpSessionListItem.Create(transaction));
-            runner.WebSocketMessageObserved += message => _pendingWebSocketRows.Enqueue(WebSocketListItem.Create(message));
+            runner.PacketObserved += item => PendingRowQueue.Enqueue(_pendingPacketRows, item, MaxPendingRows);
+            runner.FlowObserved += update => PendingRowQueue.Enqueue(_pendingFlowUpdates, update, MaxPendingRows);
+            runner.KcpConversationObserved += update => PendingRowQueue.Enqueue(_pendingKcpUpdates, update, MaxPendingRows);
+            runner.HttpTransactionObserved += transaction => PendingRowQueue.Enqueue(_pendingHttpRows, HttpSessionListItem.Create(transaction), MaxPendingRows);
+            runner.WebSocketMessageObserved += message => PendingRowQueue.Enqueue(_pendingWebSocketRows, WebSocketListItem.Create(message), MaxPendingRows);
 
             _httpsMitm.Start(runner.HarWriter, _filters);
             StatusText.Text = "Opening WinDivert";

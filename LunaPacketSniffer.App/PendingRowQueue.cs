@@ -9,6 +9,19 @@ namespace LunaPacketSniffer.App;
 /// </summary>
 internal static class PendingRowQueue
 {
+    /// <summary>
+    /// Queues a UI update while retaining only the newest entries when the dispatcher cannot keep up.
+    /// Capture output is written before these events are raised, so trimming affects the live view only.
+    /// </summary>
+    public static void Enqueue<TRow>(ConcurrentQueue<TRow> pending, TRow row, int maxPendingRows)
+        where TRow : class
+    {
+        pending.Enqueue(row);
+        while (pending.Count > maxPendingRows && pending.TryDequeue(out _))
+        {
+        }
+    }
+
     /// <summary>Appends queued rows, trimming the oldest ones past <paramref name="maxRows"/>.</summary>
     /// <returns>The last row added, or <see langword="null"/> when nothing was queued.</returns>
     public static TRow? Drain<TRow>(

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.ExceptionServices;
 using LunaPacketSniffer.App.ViewModels;
 using LunaPacketSniffer.Capture;
 using LunaPacketSniffer.Core;
@@ -116,16 +117,30 @@ internal sealed class CaptureRunner : IAsyncDisposable
         }
 
         _stopped = true;
-        await _captureSession.StopAsync();
-        if (_pumpTask is not null)
+        Exception? captureFailure = null;
+        try
         {
-            await _pumpTask;
+            await _captureSession.StopAsync();
+            if (_pumpTask is not null)
+            {
+                await _pumpTask;
+            }
+        }
+        catch (Exception exception)
+        {
+            captureFailure = exception;
         }
 
-        await _writer.DisposeAsync();
-        await _indexWriter.DisposeAsync();
-        await HarWriter.DisposeAsync();
-        await _sessionWriter.DisposeAsync();
+        var disposeFailure = await DisposeOutputsAsync();
+        if (captureFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(captureFailure).Throw();
+        }
+
+        if (disposeFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(disposeFailure).Throw();
+        }
     }
 
     public ValueTask DisposeAsync() => StopAsync();
@@ -152,6 +167,29 @@ internal sealed class CaptureRunner : IAsyncDisposable
                     decoded?.Payload.ToArray() ?? []));
             }
         }
+    }
+
+    private async ValueTask<Exception?> DisposeOutputsAsync()
+    {
+        List<Exception>? failures = null;
+        foreach (var output in new IAsyncDisposable[] { _writer, _indexWriter, HarWriter, _sessionWriter })
+        {
+            try
+            {
+                await output.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+
+        return failures switch
+        {
+            null => null,
+            [var failure] => failure,
+            _ => new AggregateException(failures),
+        };
     }
 
     private static ValueTask DisposeIfNotNullAsync(IAsyncDisposable? disposable) =>
