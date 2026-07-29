@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using LunaPacketSniffer.App.ViewModels;
 using LunaPacketSniffer.Capture;
 using LunaPacketSniffer.Core;
 
