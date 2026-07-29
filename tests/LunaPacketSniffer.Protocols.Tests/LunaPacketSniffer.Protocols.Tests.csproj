@@ -13,5 +13,6 @@
     <ProjectReference Include="..\..\LunaPacketSniffer.Networking\LunaPacketSniffer.Networking.csproj" />
     <ProjectReference Include="..\..\LunaPacketSniffer.Persistence\LunaPacketSniffer.Persistence.csproj" />
     <ProjectReference Include="..\..\LunaPacketSniffer.Protocols\LunaPacketSniffer.Protocols.csproj" />
+    <ProjectReference Include="..\..\LunaPacketSniffer.Proxy\LunaPacketSniffer.Proxy.csproj" />
   </ItemGroup>
 </Project>
