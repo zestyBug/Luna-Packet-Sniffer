@@ -23,13 +23,13 @@ jobs:
         run: cmake --preset windows-x64 -G "Visual Studio 18 2026"
 
       - name: Build C++
-        run: cmake --build --preset windows-x64-debug --config Release
+        run: cmake --build --preset windows-x64-debug
 
       - name: Build C#
-        run: dotnet build LunaPacketSniffer.sln --configuration Release
+        run: dotnet build LunaPacketSniffer.sln --configuration Debug
 
       - name: Run tests
-        run: dotnet test LunaPacketSniffer.sln --configuration Release --no-build
+        run: dotnet test LunaPacketSniffer.sln --configuration Debug --no-build
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
