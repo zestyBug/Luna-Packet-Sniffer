@@ -26,10 +26,10 @@ jobs:
         run: cmake --build --preset windows-x64-debug
 
       - name: Build C#
-        run: dotnet build LunaPacketSniffer.sln --configuration Debug
+        run: dotnet build LunaPacketSniffer.sln --configuration Release
 
       - name: Run tests
-        run: dotnet test LunaPacketSniffer.sln --configuration Debug --no-build
+        run: dotnet test LunaPacketSniffer.sln --configuration Release --no-build
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
