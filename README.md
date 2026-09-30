@@ -50,7 +50,7 @@ TCP flow details include separate inbound and outbound stream previews, retransm
 Build the native DLL first, then build and test the .NET solution:
 
 ```powershell
-cmake --preset windows-x64
+cmake --preset windows-x64 -G "Visual Studio 18 2026"
 cmake --build --preset windows-x64-debug
 dotnet build LunaPacketSniffer.sln --configuration Debug
 dotnet test LunaPacketSniffer.sln --configuration Debug
